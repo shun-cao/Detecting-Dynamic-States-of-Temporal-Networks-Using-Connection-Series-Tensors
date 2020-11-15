@@ -1,0 +1,142 @@
+# National Science Foundation Research Project
+# "Diversity, network structure, and the effectiveness of collective design and innovation"
+#
+# Detecting System States of Temporal Networks
+# Shun Cao (scao12@binghamton.edu)
+#
+# Copyright (c) 2020 by Shun Cao
+
+
+import networkx as nx
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from collections import Counter
+import math
+from collections import OrderedDict
+import operator
+from scipy import spatial
+from numpy import linalg
+from termcolor import colored
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.font_manager import FontProperties
+from numpy import loadtxt
+from scipy import sparse as sps
+import copy
+import community as cm
+
+### this defines the length of the nonoverlapping time window
+window = 30
+graph_list = []
+
+### this computes the ratio of matched elements between two connection series
+def overlap_sim(l1, l2):
+    sim = 0.
+    for i in range(min([len(l1), len(l2)])):
+        if l1[i]==l2[i]:
+            sim += 1.
+    return sim/max([len(l1), len(l2)])
+
+### this computes the maximal ratio of of two matched elements between two connection series through "fixing one series and revolving the other one"
+def series_sim(l1, l2):
+    sim = []
+    if sum(l1)==0 and sum(l2)==0:
+        sim.append(1.)
+    else:
+        tem = l1[:]
+        for i in range(len(tem)):
+            tem.append(tem[0])
+            tem.pop(0)
+            sim.append(overlap_sim(tem, l2))
+    return max(sim)
+
+### this computes the similarity between two tensors
+def graph_sim(group1, group2):
+    edges1 = list(group1.keys())
+    edges2 = list(group2.keys())
+    if len(set(edges1+edges2))==0:
+        return 1.
+    sim = []
+    for i in edges1:
+        for j in edges2:
+            if i == j:
+                sim.append(series_sim(group1[i], group2[j]))
+    return sum(sim)/len(set(edges1+edges2))
+
+
+### read data into networks and put them into a list of graphs
+timestamp = data.iloc[0,0]
+while timestamp < data.iloc[-1,0]:
+    lower = timestamp
+    upper = timestamp + time_interval
+    tem = data[data[0] >= lower]
+    tem = tem[tem[0] < upper]
+    edge_list = [(tem.iloc[i][1], tem.iloc[i][2]) if tem.iloc[i][1] <= tem.iloc[i][2] else (tem.iloc[i][2], tem.iloc[i][1]) for i in range(len(tem))]
+    timestamp += time_interval
+    graph_list.append(edge_list)
+
+### generate the list of connection series tensors
+aggregation_list = []
+for i in range(math.ceil(len(graph_list)/window)):
+    if i*window+window >= len(graph_list):
+        break
+    else:
+        m = graph_list[i*window: i*window + window]
+        window_list = []
+        for i in m:
+            window_list = window_list + i
+        group_edges = list(set(window_list))
+        fluctuation_dict = {}
+        for i in group_edges:
+            fluctuation_dict[i] = []
+        for i in list(fluctuation_dict.keys()):
+            for j in m:
+                if i in j:
+                    fluctuation_dict[i].append(1)
+                else:
+                    fluctuation_dict[i].append(0)
+        aggregation_list.append(fluctuation_dict)
+
+### obtain the similarity matrix
+sim_matrix = []
+length = len(aggregation_list)
+for i in range(length):
+    tem = []
+    for j in range(length):
+        if j==i:
+            tem.append(0)
+        else:
+            tem.append(graph_sim(aggregation_list[i], aggregation_list[j]))
+    sim_matrix.append(tem)
+sim_matrix = np.matrix(sim_matrix)
+
+### create a meta-level network whose nodes are the tensors and edge weights are the similarity between them.
+G = nx.from_numpy_matrix(sim_matrix1)
+
+### run community detection (the Louvain method)
+partition = cm.best_partition(G, weight='weight',random_state=0, resolution=Resolution)
+size = float(len(set(partition.values())))
+final_path = list(partition.values())
+
+### plot the final results
+final_path = final_path
+fig = plt.figure(figsize=(15, 6))
+plt.plot([(i+0.5)*window*time_interval/3600 + 8.67 for i in range(len(final_path))], final_path, color='red', linestyle=':')
+lower = 0
+for i in range(len(final_path)-1):
+    if final_path[i] != final_path[i+1]:
+        plt.axvspan(8.67+lower, (i+1)*window*time_interval/3600 + 8.67, alpha=0.5, facecolor=str(final_path[i]/len(set(final_path))), label='state: '+ str(final_path[i]))
+        lower = (i+1)*window*time_interval/3600
+plt.axvspan(8.67+lower, (len(final_path))*window*time_interval/3600 +8.67, alpha=0.5, facecolor=str(final_path[-1]/len(set(final_path))), label='state: '+ str(final_path[-1]))
+#plt.axvspan(8.67, .5*window*time_interval/3600 +8.67, alpha=0.5, facecolor=str(final_path[0]/len(set(final_path))), label='state: '+ str(final_path[0]))
+
+handles, labels = plt.gca().get_legend_handles_labels()
+by_label = OrderedDict(zip(labels, handles))
+plt.legend(by_label.values(), by_label.keys(), loc='upper left', prop={'size':20})
+plt.xlabel('Time', fontsize=20)
+plt.ylabel('States', fontsize=20)
+plt.yticks(range(len(set(final_path))), fontsize=20)
+plt.xticks(fontsize=20)
+plt.rcParams['svg.fonttype']
+plt.savefig(fname='primary_states_connection_1.0', format='svg')
+plt.show()
